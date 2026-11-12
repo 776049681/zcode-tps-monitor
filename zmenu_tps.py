@@ -74,6 +74,19 @@ def fetch():
                    WHERE session_id=? AND status='completed' AND started_at>=?""",
                 (sess[0], midnight)).fetchone()[0]
             cur = {"id": sess[0], "title": sess[1] or "", "today": n(cnt)}
+            # 本会话级统计：全部有效调用的加权平均（不限今天）
+            agg = db.execute(
+                """SELECT count(*), sum(duration_ms), sum(time_to_first_token_ms),
+                          sum(output_tokens)
+                   FROM model_usage WHERE session_id=? AND status='completed'
+                     AND time_to_first_token_ms IS NOT NULL AND time_to_first_token_ms>0""",
+                (sess[0],)).fetchone()
+            ac, ad, at, ao = n(agg[0]), n(agg[1]) / 1000, n(agg[2]) / 1000, n(agg[3])
+            cur.update({
+                "avg_count": ac,
+                "avg_ttft": at / ac if ac else None,
+                "avg_pure": ao / (ad - at) if ac and ad > at > 0 else None,
+            })
             # ttft 为 NULL/0 的短应答调用（如一两个 token 的确认回复）无法算
             # 首字/纯解码，直接跳过取上一次有效调用
             row = db.execute(
@@ -135,6 +148,10 @@ def render_text(cur, models):
         if c.get("hit") is not None:
             lines.append(f"缓存命中  {c['hit']:.0f}%")
         lines.append(f"本会话今日  {c['today']} 次")
+        if c.get("avg_count"):
+            at = f"{c['avg_ttft']:.1f}s" if c.get("avg_ttft") is not None else "—"
+            ap = f"{c['avg_pure']:.1f}" if c.get("avg_pure") is not None else "—"
+            lines.append(f"本会话平均  首 {at} · 纯解码 {ap}tps ({c['avg_count']:.0f}次)")
     lines.append("-" * 24)
     for m in models or []:
         tag = "（免费）" if m["free"] else ""
@@ -203,6 +220,12 @@ class Delegate(A.NSObject):
             if c.get("hit") is not None:
                 self._add_item(menu, f"缓存命中  {c['hit']:.0f}%", None)
             self._add_item(menu, f"本会话今日  {c['today']} 次", None)
+            if c.get("avg_count"):
+                at = f"{c['avg_ttft']:.1f}s" if c.get("avg_ttft") is not None else "—"
+                ap = f"{c['avg_pure']:.1f}" if c.get("avg_pure") is not None else "—"
+                self._add_item(menu,
+                               f"本会话平均  首 {at} · 纯解码 {ap}tps ({c['avg_count']:.0f}次)",
+                               None)
         menu.addItem_(A.NSMenuItem.separatorItem())
         for m in self.models or []:
             tag = "（免费）" if m["free"] else ""
