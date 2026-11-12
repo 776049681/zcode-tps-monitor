@@ -86,6 +86,7 @@ def fetch():
                 "avg_count": ac,
                 "avg_ttft": at / ac if ac else None,
                 "avg_pure": ao / (ad - at) if ac and ad > at > 0 else None,
+                "avg_e2e": ao / ad if ac and ad > 0 else None,
             })
             # ttft 为 NULL/0 的短应答调用（如一两个 token 的确认回复）无法算
             # 首字/纯解码，直接跳过取上一次有效调用
@@ -151,7 +152,10 @@ def render_text(cur, models):
         if c.get("avg_count"):
             at = f"{c['avg_ttft']:.1f}s" if c.get("avg_ttft") is not None else "—"
             ap = f"{c['avg_pure']:.1f}" if c.get("avg_pure") is not None else "—"
-            lines.append(f"本会话平均  首 {at} · 纯解码 {ap}tps ({c['avg_count']:.0f}次)")
+            ae = f"{c['avg_e2e']:.1f}" if c.get("avg_e2e") is not None else "—"
+            lines.append(f"本会话平均首字  {at}")
+            lines.append(f"本会话平均 TPS 纯解码  {ap}")
+            lines.append(f"本会话平均 TPS 端到端  {ae}")
     lines.append("-" * 24)
     for m in models or []:
         tag = "（免费）" if m["free"] else ""
@@ -223,9 +227,10 @@ class Delegate(A.NSObject):
             if c.get("avg_count"):
                 at = f"{c['avg_ttft']:.1f}s" if c.get("avg_ttft") is not None else "—"
                 ap = f"{c['avg_pure']:.1f}" if c.get("avg_pure") is not None else "—"
-                self._add_item(menu,
-                               f"本会话平均  首 {at} · 纯解码 {ap}tps ({c['avg_count']:.0f}次)",
-                               None)
+                ae = f"{c['avg_e2e']:.1f}" if c.get("avg_e2e") is not None else "—"
+                self._add_item(menu, f"本会话平均首字  {at}", None)
+                self._add_item(menu, f"本会话平均 TPS 纯解码  {ap}", None)
+                self._add_item(menu, f"本会话平均 TPS 端到端  {ae}", None)
         menu.addItem_(A.NSMenuItem.separatorItem())
         for m in self.models or []:
             tag = "（免费）" if m["free"] else ""
